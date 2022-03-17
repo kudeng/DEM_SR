@@ -9,3 +9,4 @@ weights/
 *.png
 *.tif
 /data/splited
+/.idea
