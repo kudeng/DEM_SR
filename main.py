@@ -59,14 +59,12 @@ def main(args):
     load_path = load_model_path_by_args(args)
     data_module = DInterface(**vars(args))
 
-    # if load_path is None:
-    #     model = MInterface(**vars(args))
-    # else:
-    #     model = MInterface(**vars(args))
-    #     print(f'--------------------------load_path {load_path}------------------------')
-    #     args.resume_from_checkpoint = load_path
-
-    model = MInterface(**vars(args))
+    if load_path is None:
+        model = MInterface(**vars(args))
+    else:
+        model = MInterface(**vars(args))
+        print(f'--------------------------load_path {load_path}------------------------')
+        args.resume_from_checkpoint = load_path
 
     args.callbacks = load_callbacks()
     trainer = Trainer.from_argparse_args(args)
@@ -99,8 +97,8 @@ if __name__ == '__main__':
     parser.add_argument('--load_v_num', default=None, type=int)
 
     # Training Info
-    parser.add_argument('--dataset', default='pair_data', type=str)
-    parser.add_argument('--datatype', default='nyuv2', type=str)
+    parser.add_argument('--dataset', default='moon_data', type=str)
+    parser.add_argument('--datatype', default='moon', type=str)
     parser.add_argument('--patched', default=True, type=bool)
     parser.add_argument('--patch_size', default=32, type=int)
     parser.add_argument('--model_name', default='edsr_net', type=str)
@@ -109,13 +107,14 @@ if __name__ == '__main__':
 
     # Model Hyperparameters
     parser.add_argument('--scale', default=4, type=int)
-    parser.add_argument('--n_resblocks', default=16, type=int)
+    parser.add_argument('--n_resblocks', default=4, type=int)
     parser.add_argument('--in_channels', default=1, type=int)
-    parser.add_argument('--img_channels', default=3, type=int)
+    parser.add_argument('--img_channels', default=1, type=int)
     parser.add_argument('--n_feats', default=128, type=int)
     parser.add_argument('--n_colors', default=1, type=int)
-    parser.add_argument('--color_range', default=255, type=int)
-    parser.add_argument('--data_range', default=255, type=int)
+    parser.add_argument('--mde_kernel_size', default=6, type=int)
+    parser.add_argument('--color_range', default=1, type=int)
+    parser.add_argument('--data_range', default=1, type=int)
     parser.add_argument('--test_mde', default=True, type=bool)
 
     # Other

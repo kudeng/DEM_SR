@@ -10,3 +10,6 @@ weights/
 *.tif
 /data/splited
 /.idea
+mail.py
+screenshots/
+.others/

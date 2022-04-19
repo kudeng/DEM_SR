@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import inspect
+import sys
+
 import torch
 import numpy as np
 import importlib
@@ -34,6 +36,8 @@ class MInterface(pl.LightningModule):
         self.lr = lr
         if self.model_name in ['edsr_net', 'dbpn_net']:
             self.task = 'sr'
+        elif self.model_name in ['dkn_net']:
+            self.task = 'g_sr'
         else:
             self.task = 'mde_sr'
         self.test_mde = kargs['test_mde']
@@ -48,6 +52,15 @@ class MInterface(pl.LightningModule):
         if self.task == 'sr':
             sr = self(lr)
             loss = self.loss_function(sr, hr)
+        elif self.task == 'g_sr':
+            sr = self(lr, img)
+            loss = self.loss_function(sr, hr)
+        elif self.task == 'bid_net':
+            mde, sr, sr_2 = self(img, lr)
+            loss_sr = self.loss_function(sr, hr)
+            loss_de = self.loss_function(mde, hr)
+            loss_sr_2 = self.loss_function(F.interpolate(sr_2, scale_factor=2, mode='bicubic'), hr)
+            loss = loss_sr + loss_de + loss_sr_2
         else:
             mde, sr = self(img, lr)
             loss_sr = self.loss_function(sr, hr)
@@ -60,24 +73,24 @@ class MInterface(pl.LightningModule):
         lr, hr, img, _ = batch
         if self.task == 'sr':
             sr = self(lr)
+        elif self.task == 'g_sr':
+            sr = self(lr, img)
         else:
-            mde, sr = self(img, lr)
+            mde, sr, *other = self(img, lr)
             if self.test_mde:
-                mde_psnr, mde_ssim = tensor_accessment(
+                mde_psnr = tensor_accessment(
                     x_pred=mde.cpu().numpy(),
                     x_true=hr.cpu().numpy(),
-                    data_range=self.hparams.color_range,
-                    multi_dimension=False)
+                    data_range=self.hparams.color_range)
                 self.log('mde_psnr', mde_psnr, on_step=False, on_epoch=True, prog_bar=True)
-                self.log('mde_psnr', mde_ssim, on_step=False, on_epoch=True, prog_bar=True)
-        psnr, ssim = tensor_accessment(
+
+        psnr = tensor_accessment(
             x_pred=sr.cpu().numpy(),
             x_true=hr.cpu().numpy(),
-            data_range=self.hparams.color_range,
-            multi_dimension=False)
+            data_range=self.hparams.color_range)
 
         self.log('psnr', psnr, on_step=False, on_epoch=True, prog_bar=True)
-        self.log('ssim', ssim, on_step=False, on_epoch=True, prog_bar=True)
+
 
 
     def test_step(self, batch, batch_idx):
@@ -112,6 +125,37 @@ class MInterface(pl.LightningModule):
                 raise ValueError('Invalid lr_scheduler type!')
             return [optimizer], [scheduler]
 
+    # def configure_optimizers(self):
+    #     if hasattr(self.hparams, 'weight_decay'):
+    #         weight_decay = self.hparams.weight_decay
+    #     else:
+    #         weight_decay = 0
+    #     optimizer_sr = torch.optim.Adam(
+    #         self.sr_parameters(), lr=self.hparams.lr, weight_decay=weight_decay)
+    #     optimizer_de = torch.optim.Adam(
+    #         self.de_parameters(), lr=self.hparams.lr, weight_decay=weight_decay)
+    #
+    #     if self.hparams.lr_scheduler is None:
+    #         return optimizer_sr
+    #     else:
+    #         if self.hparams.lr_scheduler == 'step':
+    #             scheduler_sr = lrs.StepLR(optimizer_sr,
+    #                                    step_size=self.hparams.lr_decay_steps,
+    #                                    gamma=self.hparams.lr_decay_rate)
+    #             scheduler_de = lrs.StepLR(optimizer_de,
+    #                                    step_size=self.hparams.lr_decay_steps,
+    #                                    gamma=self.hparams.lr_decay_rate)
+    #         elif self.hparams.lr_scheduler == 'cosine':
+    #             scheduler_sr = lrs.CosineAnnealingLR(optimizer_sr,
+    #                                               T_max=self.hparams.lr_decay_steps,
+    #                                               eta_min=self.hparams.lr_decay_min_lr)
+    #             scheduler_de = lrs.CosineAnnealingLR(optimizer_de,
+    #                                               T_max=self.hparams.lr_decay_steps,
+    #                                               eta_min=self.hparams.lr_decay_min_lr)
+    #         else:
+    #             raise ValueError('Invalid lr_scheduler type!')
+    #         return [optimizer_sr, optimizer_de], [scheduler_sr, scheduler_de]
+
     def configure_loss(self):
         loss = self.hparams.loss.lower()
         if loss == 'mse':
@@ -127,12 +171,15 @@ class MInterface(pl.LightningModule):
         # Please always name your model file name as `snake_case.py` and
         # class name corresponding `CamelCase`.
         camel_name = ''.join([i.capitalize() for i in name.split('_')])
+        # from model.bid_net import BidNet
+        # from model.bid_net_v2 import BidNetV2
         try:
             Model = getattr(importlib.import_module(
                 '.'+name, package=__package__), camel_name)
         except:
             raise ValueError(
                 f'Invalid Module File Name or Invalid Class Name {name}.{camel_name}!')
+        # Model = BidNet
         self.model = self.instancialize(Model)
 
     def instancialize(self, Model, **other_args):
@@ -148,3 +195,21 @@ class MInterface(pl.LightningModule):
                 args1[arg] = getattr(self.hparams, arg)
         args1.update(other_args)
         return Model(**args1)
+
+
+    def sr_parameters(self, recurse: bool = True):
+        for name, param in self.named_parameters(recurse=recurse):
+            # sys.stdout.write(name)
+            _name = name[6:name.index('.', 6)]
+            # sys.stdout.write(_name+'#$$#')
+            if 'sr_' in _name or 'guidance' in _name:
+                yield param
+
+
+    def de_parameters(self, recurse: bool = True):
+        for name, param in self.named_parameters(recurse=recurse):
+            # sys.stdout.write(name)
+            _name = name[6:name.index('.', 6)]
+            # sys.stdout.write(_name+'#$$#')
+            if 'de_' in _name or 'correction' in _name:
+                yield param

@@ -24,8 +24,8 @@ class DInterface(pl.LightningDataModule):
 
     def __init__(self,
                  num_workers=0,
-                 dataset='pair_data',
-                 datatype='nyuv2',
+                 dataset='moon_data',
+                 datatype='moon',
                  **kwargs):
         super().__init__()
         self.num_workers = num_workers
@@ -84,49 +84,27 @@ class DInterface(pl.LightningDataModule):
                     guided_transform=ToTensor(),
                     patched=False
                 )
-        elif self.datatype == 'moon2':
+        elif self.datatype == 'moon':
             if stage == 'fit' or stage is None:
                 self.trainset = self.instancialize(
-                    hr_dir='data/splited/moon2/train/hr',
-                    img_dir='data/splited/moon2/train/img',
-                    lr_dir='data/splited/moon2/train/lr',
-                    hr_size=(1024, 1024),
-                    generate_from_hr=False,
-                    scale_factor=self.scale,
-                    suffix='tif',
-                    transform=None,
-                    target_transform=None,
-                    guided_transform=ToTensor(),
-                    patched=self.patched,
-                    patch_size=self.patch_size
+                    hr_dir='data/splited/moon/train/hr',
+                    img_dir='data/splited/moon/train/img',
+                    lr_dir='data/splited/moon/train/lr',
+                    scale_factor=self.scale
                 )
                 self.valset = self.instancialize(
-                    hr_dir='data/splited/moon2/val/hr',
-                    img_dir='data/splited/moon2/val/img',
-                    lr_dir='data/splited/moon2/val/lr',
-                    hr_size=(1024, 1024),
-                    generate_from_hr=False,
-                    scale_factor=self.scale,
-                    suffix='tif',
-                    transform=None,
-                    target_transform=None,
-                    guided_transform=ToTensor(),
-                    patched=False
+                    hr_dir='data/splited/moon/val/hr',
+                    img_dir='data/splited/moon/val/img',
+                    lr_dir='data/splited/moon/val/lr',
+                    scale_factor=self.scale
                 )
             # Assign test dataset for use in dataloader(s)
             if stage == 'test' or stage is None:
                 self.testset = self.instancialize(
-                    hr_dir='data/splited/moon2/test/hr',
-                    img_dir='data/splited/moon2/test/img',
-                    lr_dir='data/splited/moon2/test/lr',
-                    hr_size=(1024, 1024),
-                    generate_from_hr=False,
-                    scale_factor=self.scale,
-                    suffix='tif',
-                    transform=None,
-                    target_transform=None,
-                    guided_transform=ToTensor(),
-                    patched=False
+                    hr_dir='data/splited/moon/test/hr',
+                    img_dir='data/splited/moon/test/img',
+                    lr_dir='data/splited/moon/test/lr',
+                    scale_factor=self.scale
                 )
         else:
             print('No such dataset')
