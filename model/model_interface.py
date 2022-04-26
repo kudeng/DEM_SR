@@ -25,6 +25,7 @@ import torch.optim.lr_scheduler as lrs
 import pytorch_lightning as pl
 from .metrics import tensor_accessment
 from .utils import quantize
+from model.BALoss import BALoss
 
 
 class MInterface(pl.LightningModule):
@@ -36,7 +37,7 @@ class MInterface(pl.LightningModule):
         self.lr = lr
         if self.model_name in ['edsr_net', 'dbpn_net']:
             self.task = 'sr'
-        elif self.model_name in ['dkn_net']:
+        elif self.model_name in ['dkn_net', 'pmba_net', 'pmba_net_x8']:
             self.task = 'g_sr'
         else:
             self.task = 'mde_sr'
@@ -47,26 +48,29 @@ class MInterface(pl.LightningModule):
     def forward(self, *datas):
         return self.model(*datas)
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, optimizer_idx):
         lr, hr, img, _ = batch
         if self.task == 'sr':
             sr = self(lr)
             loss = self.loss_function(sr, hr)
         elif self.task == 'g_sr':
-            sr = self(lr, img)
+            sr = self(img, lr)
             loss = self.loss_function(sr, hr)
-        elif self.task == 'bid_net':
-            mde, sr, sr_2 = self(img, lr)
-            loss_sr = self.loss_function(sr, hr)
-            loss_de = self.loss_function(mde, hr)
-            loss_sr_2 = self.loss_function(F.interpolate(sr_2, scale_factor=2, mode='bicubic'), hr)
-            loss = loss_sr + loss_de + loss_sr_2
         else:
             mde, sr = self(img, lr)
-            loss_sr = self.loss_function(sr, hr)
-            loss_de = self.loss_function(mde, hr)
-            loss = loss_sr + loss_de
-        self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+            # loss_sr = self.loss_function(sr, hr)
+            # loss_de = self.loss_function(mde, hr)
+            # loss = loss_sr + loss_de
+            if optimizer_idx == 0:
+                loss = self.loss_function(sr, hr)
+                self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+            else:
+                if self.hparams.add_ba_loss:
+                    de_loss = self.loss_function(mde, hr)
+                    ba_loss = self.ba_loss(mde, hr)
+                    loss = de_loss + self.hparams.ba_loss_weight * ba_loss
+                else:
+                    loss = self.loss_function(mde, hr)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -74,7 +78,7 @@ class MInterface(pl.LightningModule):
         if self.task == 'sr':
             sr = self(lr)
         elif self.task == 'g_sr':
-            sr = self(lr, img)
+            sr = self(img, lr)
         else:
             mde, sr, *other = self(img, lr)
             if self.test_mde:
@@ -102,62 +106,92 @@ class MInterface(pl.LightningModule):
         # Make the Progress Bar leave there
         # self.print(self.get_progress_bar_dict())
 
-    def configure_optimizers(self):
-        if hasattr(self.hparams, 'weight_decay'):
-            weight_decay = self.hparams.weight_decay
-        else:
-            weight_decay = 0
-        optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.hparams.lr, weight_decay=weight_decay)
-
-        if self.hparams.lr_scheduler is None:
-            return optimizer
-        else:
-            if self.hparams.lr_scheduler == 'step':
-                scheduler = lrs.StepLR(optimizer,
-                                       step_size=self.hparams.lr_decay_steps,
-                                       gamma=self.hparams.lr_decay_rate)
-            elif self.hparams.lr_scheduler == 'cosine':
-                scheduler = lrs.CosineAnnealingLR(optimizer,
-                                                  T_max=self.hparams.lr_decay_steps,
-                                                  eta_min=self.hparams.lr_decay_min_lr)
-            else:
-                raise ValueError('Invalid lr_scheduler type!')
-            return [optimizer], [scheduler]
 
     # def configure_optimizers(self):
     #     if hasattr(self.hparams, 'weight_decay'):
     #         weight_decay = self.hparams.weight_decay
     #     else:
     #         weight_decay = 0
-    #     optimizer_sr = torch.optim.Adam(
-    #         self.sr_parameters(), lr=self.hparams.lr, weight_decay=weight_decay)
-    #     optimizer_de = torch.optim.Adam(
-    #         self.de_parameters(), lr=self.hparams.lr, weight_decay=weight_decay)
+    #     optimizer = torch.optim.Adam(
+    #         self.parameters(), lr=self.hparams.lr, weight_decay=weight_decay)
     #
     #     if self.hparams.lr_scheduler is None:
-    #         return optimizer_sr
+    #         return optimizer
     #     else:
     #         if self.hparams.lr_scheduler == 'step':
-    #             scheduler_sr = lrs.StepLR(optimizer_sr,
-    #                                    step_size=self.hparams.lr_decay_steps,
-    #                                    gamma=self.hparams.lr_decay_rate)
-    #             scheduler_de = lrs.StepLR(optimizer_de,
+    #             scheduler = lrs.StepLR(optimizer,
     #                                    step_size=self.hparams.lr_decay_steps,
     #                                    gamma=self.hparams.lr_decay_rate)
     #         elif self.hparams.lr_scheduler == 'cosine':
-    #             scheduler_sr = lrs.CosineAnnealingLR(optimizer_sr,
-    #                                               T_max=self.hparams.lr_decay_steps,
-    #                                               eta_min=self.hparams.lr_decay_min_lr)
-    #             scheduler_de = lrs.CosineAnnealingLR(optimizer_de,
+    #             scheduler = lrs.CosineAnnealingLR(optimizer,
     #                                               T_max=self.hparams.lr_decay_steps,
     #                                               eta_min=self.hparams.lr_decay_min_lr)
     #         else:
     #             raise ValueError('Invalid lr_scheduler type!')
-    #         return [optimizer_sr, optimizer_de], [scheduler_sr, scheduler_de]
+    #         return [optimizer], [scheduler]
+
+    def configure_optimizers(self):
+        if self.task == 'g_sr':
+            if hasattr(self.hparams, 'weight_decay'):
+                weight_decay = self.hparams.weight_decay
+            else:
+                weight_decay = 0
+            optimizer = torch.optim.Adam(
+                self.parameters(), lr=self.hparams.lr, weight_decay=weight_decay)
+
+            if self.hparams.lr_scheduler is None:
+                return optimizer
+            else:
+                if self.hparams.lr_scheduler == 'step':
+                    scheduler = lrs.StepLR(optimizer,
+                                           step_size=self.hparams.lr_decay_steps,
+                                           gamma=self.hparams.lr_decay_rate)
+                elif self.hparams.lr_scheduler == 'cosine':
+                    scheduler = lrs.CosineAnnealingLR(optimizer,
+                                                      T_max=self.hparams.lr_decay_steps,
+                                                      eta_min=self.hparams.lr_decay_min_lr)
+                else:
+                    raise ValueError('Invalid lr_scheduler type!')
+                return [optimizer], [scheduler]
+        else:
+            if hasattr(self.hparams, 'weight_decay'):
+                weight_decay = self.hparams.weight_decay
+            else:
+                weight_decay = 0
+            optimizer_sr = torch.optim.Adam(
+                self.parameters(), lr=self.hparams.lr, weight_decay=weight_decay)
+            optimizer_de = torch.optim.Adam(
+                self.de_parameters(), lr=self.hparams.de_lr, weight_decay=weight_decay)
+
+            if self.hparams.lr_scheduler is None:
+                return optimizer_sr
+            else:
+                if self.hparams.lr_scheduler == 'step':
+                    scheduler_sr = lrs.StepLR(optimizer_sr,
+                                           step_size=self.hparams.lr_decay_steps,
+                                           gamma=self.hparams.lr_decay_rate)
+                    scheduler_de = lrs.StepLR(optimizer_de,
+                                           step_size=self.hparams.lr_decay_steps,
+                                           gamma=self.hparams.lr_decay_rate)
+                elif self.hparams.lr_scheduler == 'cosine':
+                    scheduler_sr = lrs.CosineAnnealingLR(optimizer_sr,
+                                                      T_max=self.hparams.lr_decay_steps,
+                                                      eta_min=self.hparams.lr_decay_min_lr)
+                    scheduler_de = lrs.CosineAnnealingLR(optimizer_de,
+                                                      T_max=self.hparams.lr_decay_steps,
+                                                      eta_min=self.hparams.lr_decay_min_lr)
+                else:
+                    raise ValueError('Invalid lr_scheduler type!')
+            return (
+                {"optimizer": optimizer_sr, "lr_scheduler": scheduler_sr, 'frequency': 5},
+                {"optimizer": optimizer_de, "lr_scheduler": scheduler_de, 'frequency': 5},
+                )
+        # return [optimizer_sr, optimizer_de], [scheduler_sr, scheduler_de]
+
 
     def configure_loss(self):
         loss = self.hparams.loss.lower()
+        self.ba_loss = BALoss()
         if loss == 'mse':
             self.loss_function = F.mse_loss
         elif loss == 'l1':
@@ -197,19 +231,13 @@ class MInterface(pl.LightningModule):
         return Model(**args1)
 
 
-    def sr_parameters(self, recurse: bool = True):
-        for name, param in self.named_parameters(recurse=recurse):
-            # sys.stdout.write(name)
-            _name = name[6:name.index('.', 6)]
-            # sys.stdout.write(_name+'#$$#')
-            if 'sr_' in _name or 'guidance' in _name:
-                yield param
-
+    # def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, optimizer_closure,
+    #                    on_tpu=False, using_native_amp=False, using_lbfgs=False):
+    #     print(id(optimizer))
+    #     optimizer.step(closure=optimizer_closure)
 
     def de_parameters(self, recurse: bool = True):
         for name, param in self.named_parameters(recurse=recurse):
-            # sys.stdout.write(name)
             _name = name[6:name.index('.', 6)]
-            # sys.stdout.write(_name+'#$$#')
-            if 'de_' in _name or 'correction' in _name:
+            if 'de_' in _name:
                 yield param

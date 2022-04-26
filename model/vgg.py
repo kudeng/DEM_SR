@@ -25,9 +25,9 @@ class VGG(nn.Module):
         # x = self.classifier(x)
         feat1 = self.features[:4](x)
         feat2 = self.features[4:9](feat1)
-        feat3 = self.features[9:14](feat2)
-        feat4 = self.features[14:21](feat3)
-        feat5 = self.features[21:](feat4)
+        feat3 = self.features[9:16](feat2)
+        feat4 = self.features[16:23](feat3)
+        feat5 = self.features[23:-1](feat4)
         return [feat1, feat2, feat3, feat4, feat5]
 
     def _initialize_weights(self):
@@ -61,16 +61,12 @@ def make_layers(cfg, batch_norm=False, in_channels=3):
 
 # 512,512,3 -> 512,512,64 -> 256,256,64 -> 256,256,128 -> 128,128,128 -> 128,128,256 -> 64,64,256
 # 64,64,512 -> 32,32,512 -> 32,32,512
-
-# 128,128,1 -> 128,128,32 -> 64,64,32 -> 64,64,64 -> 32,32,64 -> 32,32,128 -> 16,16,128 ->
-# 16,16,256 -> 8,256
 cfgs = {
-    # 'D': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
-    'D': [32, 32, 'M', 64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M']
+    'D': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
 }
 
 
-def VGG16(pretrained, in_channels=3, **kwargs):
+def VGG16(pretrained, in_channels=1, **kwargs):
     model = VGG(make_layers(cfgs["D"], batch_norm=False, in_channels=in_channels), **kwargs)
     if pretrained:
         state_dict = load_state_dict_from_url("https://download.pytorch.org/models/vgg16-397923af.pth",

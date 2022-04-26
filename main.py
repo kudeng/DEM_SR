@@ -42,7 +42,7 @@ def load_callbacks():
 
     callbacks.append(plc.ModelCheckpoint(
         monitor='psnr',
-        filename='best-{epoch:02d}-{psnr:.2f}-{ssim:.3f}',
+        filename='best-{epoch:02d}-{psnr:.2f}',
         save_top_k=1,
         mode='max',
         save_last=True
@@ -82,10 +82,11 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', default=1, type=int)
     parser.add_argument('--seed', default=31, type=int)
     parser.add_argument('--lr', default=1e-4, type=float)
+    parser.add_argument('--de_lr', default=1e-4, type=float)
     parser.add_argument('--stage', default='fit', type=str)
 
     # LR Scheduler
-    parser.add_argument('--lr_scheduler', choices=['step', 'cosine'], type=str)
+    parser.add_argument('--lr_scheduler', choices=['step', 'cosine'], type=str, default='cosine')
     parser.add_argument('--lr_decay_steps', default=20, type=int)
     parser.add_argument('--lr_decay_rate', default=0.5, type=float)
     parser.add_argument('--lr_decay_min_lr', default=1e-5, type=float)
@@ -116,6 +117,8 @@ if __name__ == '__main__':
     parser.add_argument('--color_range', default=1, type=int)
     parser.add_argument('--data_range', default=1, type=int)
     parser.add_argument('--test_mde', default=True, type=bool)
+    parser.add_argument('--ba_loss_weight', default=0.01, type=float)
+    parser.add_argument('--add_ba_loss', default=True, type=bool)
 
     # Other
     # parser.add_argument('--aug_prob', default=0.5, type=float)

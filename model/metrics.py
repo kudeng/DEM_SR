@@ -241,14 +241,14 @@ def baseline_assessment(x_true, x_pred, data_range, multi_dimension=False):
     return mpsnr, mssim, psnrs, ssims
 
 
-def tensor_accessment(x_true, x_pred, data_range, multi_dimension=False):
+def tensor_accessment(x_true, x_pred, data_range):
     x_true = x_true[0][0]
     x_pred = x_pred[0][0]
     x_true = x_true * data_range
     x_pred = x_pred * data_range
     psnr = peak_signal_noise_ratio(x_true, x_pred, data_range=data_range)
-    ssim = structural_similarity(x_true, x_pred, data_range=data_range)
-    return psnr, ssim
+    # ssim = structural_similarity(x_true, x_pred, data_range=data_range)
+    return psnr
 
 
 def batch_accessment(x_true, x_pred, data_range, ratio, multi_dimension=False):
